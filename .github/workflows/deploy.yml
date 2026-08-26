@@ -1,0 +1,28 @@
+name: SkillMatch CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check Docker
+        run: docker --version
+
+      - name: Check Docker Compose
+        run: docker compose version
+
+      - name: Deploy
+        run: |
+          docker compose down
+          docker compose up -d --build
+
+      - name: Check containers
+        run: docker compose ps
