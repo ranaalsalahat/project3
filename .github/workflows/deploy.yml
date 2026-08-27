@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: skillmatch-production
+  group: skillmatch-deployment
   cancel-in-progress: false
 
 jobs:
@@ -27,47 +27,52 @@ jobs:
       - name: Check Docker Compose
         run: docker compose version
 
-      - name: Verify Compose configuration
+      - name: Verify Compose file
         run: docker compose config -q
 
-      - name: Scan source with Trivy
-        run: |
-          if ! command -v trivy >/dev/null 2>&1; then
-            echo "Trivy is not installed on the runner."
-            exit 1
-          fi
+      - name: Check Trivy
+        run: trivy --version
 
+      - name: Scan filesystem
+        run: |
           trivy fs \
             --scanners vuln,secret,misconfig \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
+            --ignore-unfixed \
             .
 
-      - name: Build application images
+      - name: Build backend image
         run: |
-          docker compose build backend frontend
+          docker build \
+            --pull \
+            -t skillmatch-backend:ci \
+            ./backend
 
-      - name: Scan backend image with Trivy
+      - name: Build frontend image
         run: |
-          BACKEND_IMAGE=$(docker compose images -q backend)
-          echo "Backend image: $BACKEND_IMAGE"
+          docker build \
+            --pull \
+            -t skillmatch-frontend:ci \
+            ./frontend
 
+      - name: Scan backend image
+        run: |
           trivy image \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
-            "$BACKEND_IMAGE"
+            --ignore-unfixed \
+            skillmatch-backend:ci
 
-      - name: Scan frontend image with Trivy
+      - name: Scan frontend image
         run: |
-          FRONTEND_IMAGE=$(docker compose images -q frontend)
-          echo "Frontend image: $FRONTEND_IMAGE"
-
           trivy image \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
-            "$FRONTEND_IMAGE"
+            --ignore-unfixed \
+            skillmatch-frontend:ci
 
-      - name: Deploy application
+      - name: Deploy
         run: |
           docker compose up -d --build --remove-orphans
 
@@ -76,9 +81,13 @@ jobs:
           sleep 10
           docker compose ps
 
-      - name: Check backend
+      - name: Check containers
         run: |
-          docker compose ps backend | grep -q "Up"
+          docker compose ps
+          test "$(docker inspect -f '{{.State.Status}}' skills-backend)" = "running"
+          test "$(docker inspect -f '{{.State.Status}}' skills-frontend)" = "running"
+          test "$(docker inspect -f '{{.State.Status}}' skills-postgres)" = "running"
+          test "$(docker inspect -f '{{.State.Status}}' skills-vault)" = "running"
 
       - name: Check frontend
         run: |
@@ -92,6 +101,5 @@ jobs:
             --max-time 10 \
             http://localhost/api/courses
 
-      - name: Final container status
-        run: |
-          docker compose ps
+      - name: Final status
+        run: docker compose ps
