@@ -28,20 +28,22 @@ services:
 
 
   backend:
-    image: ghcr.io/ranaalsalahat/project3-backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
 
-  container_name: skills-backend
+    container_name: skills-backend
 
-  environment:
-    DB_HOST: postgres
-    DB_PORT: 5432
-    DB_NAME: course_recommendation_db
-    DB_USER: postgres
-    DB_PASSWORD: 123456
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: course_recommendation_db
+      DB_USER: postgres
+      DB_PASSWORD: 123456
 
-  depends_on:
-    postgres:
-      condition: service_healthy
+    depends_on:
+      postgres:
+        condition: service_healthy
 
     expose:
       - "5000"
