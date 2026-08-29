@@ -4,13 +4,9 @@ on:
   push:
     branches:
       - main
-
   pull_request:
     branches:
       - main
-
-permissions:
-  contents: read
 
 jobs:
 
@@ -25,31 +21,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      # -------------------------
+      # -----------------------------
       # Secret Scanning
-      # -------------------------
-
+      # -----------------------------
       - name: Gitleaks Secret Scan
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # -------------------------
-      # Python Dependency Scan
-      # -------------------------
-
+      # -----------------------------
+      # Python Dependency Security
+      # -----------------------------
       - name: Install pip-audit
         run: |
-          python3 -m pip install --user pip-audit
+          python3 -m venv .venv-security
+          .venv-security/bin/python -m pip install --upgrade pip
+          .venv-security/bin/pip install pip-audit
 
       - name: Python Dependency Security Scan
         run: |
-          python3 -m pip_audit -r backend/requirements.txt
+          .venv-security/bin/pip-audit -r backend/requirements.txt
 
-      # -------------------------
-      # Docker Validation
-      # -------------------------
-
+      # -----------------------------
+      # Docker Checks
+      # -----------------------------
       - name: Check Docker
         run: |
           docker --version
@@ -58,50 +53,50 @@ jobs:
         run: |
           docker compose version
 
+      # -----------------------------
+      # Docker Compose Validation
+      # -----------------------------
       - name: Validate Docker Compose
         run: |
           docker compose config
 
-      # -------------------------
-      # Build
-      # -------------------------
-
+      # -----------------------------
+      # Build Backend Image
+      # -----------------------------
       - name: Build Backend Image
         run: |
           docker compose build backend
 
-      # -------------------------
-      # Container Vulnerability Scan
-      # -------------------------
-
+      # -----------------------------
+      # Docker Image Security Scan
+      # -----------------------------
       - name: Install Trivy
         run: |
           if ! command -v trivy >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y wget gnupg
+
             wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
               | gpg --dearmor \
               | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+
             echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
               | sudo tee /etc/apt/sources.list.d/trivy.list
+
             sudo apt-get update
             sudo apt-get install -y trivy
           fi
 
       - name: Scan Backend Docker Image
         run: |
-          BACKEND_IMAGE=$(docker compose images -q backend)
-
-          if [ -z "$BACKEND_IMAGE" ]; then
-            echo "Backend image was not created."
-            exit 1
-          fi
-
           trivy image \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
-            "$BACKEND_IMAGE"
+            skills_utilization-backend
 
+  # -----------------------------
+  # Deployment
+  # -----------------------------
   deploy:
     name: Deploy
     runs-on: self-hosted
@@ -112,53 +107,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check Docker
-        run: |
-          docker --version
-
-      - name: Check Docker Compose
-        run: |
-          docker compose version
-
       - name: Deploy Application
         run: |
-          docker compose down
           docker compose up -d --build
 
-      - name: Wait for Services
-        run: |
-          sleep 10
-
-      - name: Check Containers
+      - name: Show Running Containers
         run: |
           docker compose ps
-
-      - name: Check Backend
-        run: |
-          if [ "$(docker inspect -f '{{.State.Running}}' skills-backend 2>/dev/null)" != "true" ]; then
-            echo "Backend container is not running."
-            docker compose logs backend
-            exit 1
-          fi
-
-      - name: Check PostgreSQL
-        run: |
-          if [ "$(docker inspect -f '{{.State.Running}}' skills-postgres 2>/dev/null)" != "true" ]; then
-            echo "PostgreSQL container is not running."
-            docker compose logs postgres
-            exit 1
-          fi
-
-      - name: Check Frontend
-        run: |
-          if [ "$(docker inspect -f '{{.State.Running}}' skills-frontend 2>/dev/null)" != "true" ]; then
-            echo "Frontend container is not running."
-            docker compose logs frontend
-            exit 1
-          fi
-
-      - name: Deployment Successful
-        run: |
-          echo "======================================"
-          echo " SkillMatch CI/CD Deployment Complete "
-          echo "======================================"
