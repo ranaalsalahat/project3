@@ -1,0 +1,44 @@
+services:
+
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: skills-vault
+
+    cap_add:
+      - IPC_LOCK
+
+    command:
+      - vault
+      - server
+      - -config=/vault/config/config.hcl
+
+    volumes:
+      - ./config.hcl:/vault/config/config.hcl:ro
+      - ./data:/vault/data
+
+    ports:
+      - "8200:8200"
+
+    networks:
+      skills-network:
+        aliases:
+          - vault
+
+    restart: unless-stopped
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "VAULT_ADDR=http://127.0.0.1:8200 vault status >/dev/null 2>&1 || [ $$? -eq 2 ]"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+
+networks:
+  skills-network:
+    external: true
+    name: skills_utilization_skills-network
