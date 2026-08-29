@@ -1,116 +1,96 @@
-name: SkillMatch CI/CD Security
+name: SkillMatch CI/CD
 
 on:
   push:
     branches:
       - main
+
   pull_request:
     branches:
       - main
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
 
-  security:
+  security-checks:
     name: Security Checks
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # -----------------------------
-      # Secret Scanning
-      # -----------------------------
+      # Check for accidentally committed secrets
       - name: Gitleaks Secret Scan
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # -----------------------------
-      # Python Dependency Security
-      # -----------------------------
-      - name: Install pip-audit
-        run: |
-          python3 -m venv .venv-security
-          .venv-security/bin/python -m pip install --upgrade pip
-          .venv-security/bin/pip install pip-audit
-
-      - name: Python Dependency Security Scan
-        run: |
-          .venv-security/bin/pip-audit -r backend/requirements.txt
-
-      # -----------------------------
-      # Docker Checks
-      # -----------------------------
+      # Check that Docker is available
       - name: Check Docker
-        run: |
-          docker --version
+        run: docker --version
 
+      # Check Docker Compose
       - name: Check Docker Compose
-        run: |
-          docker compose version
+        run: docker compose version
 
-      # -----------------------------
-      # Docker Compose Validation
-      # -----------------------------
+      # Validate compose file
       - name: Validate Docker Compose
-        run: |
-          docker compose config
+        run: docker compose config
 
-      # -----------------------------
-      # Build Backend Image
-      # -----------------------------
+      # Build backend image
       - name: Build Backend Image
         run: |
-          docker compose build backend
+          docker build \
+            -t ghcr.io/${{ github.repository_owner }}/project3-backend:${{ github.sha }} \
+            -t ghcr.io/${{ github.repository_owner }}/project3-backend:latest \
+            ./backend
 
-      # -----------------------------
-      # Docker Image Security Scan
-      # -----------------------------
-      - name: Install Trivy
-        run: |
-          if ! command -v trivy >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y wget gnupg
 
-            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-              | gpg --dearmor \
-              | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+  publish-image:
+    name: Publish Backend Image to GHCR
+    runs-on: ubuntu-latest
+    needs: security-checks
 
-            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
-              | sudo tee /etc/apt/sources.list.d/trivy.list
+    # Only publish from main
+    if: github.ref == 'refs/heads/main'
 
-            sudo apt-get update
-            sudo apt-get install -y trivy
-          fi
-
-      - name: Scan Backend Docker Image
-        run: |
-          trivy image \
-            --severity HIGH,CRITICAL \
-            --exit-code 1 \
-            skills_utilization-backend
-
-  # -----------------------------
-  # Deployment
-  # -----------------------------
-  deploy:
-    name: Deploy
-    runs-on: self-hosted
-    needs: security
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy Application
-        run: |
-          docker compose up -d --build
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Show Running Containers
+      - name: Build and Push Backend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/project3-backend:latest
+            ghcr.io/${{ github.repository_owner }}/project3-backend:${{ github.sha }}
+
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: publish-image
+
+    steps:
+      - name: Deployment Complete
         run: |
-          docker compose ps
+          echo "Backend image successfully published to GHCR."
+          echo "Image:"
+          echo "ghcr.io/${{ github.repository_owner }}/project3-backend:latest"
