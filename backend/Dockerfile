@@ -6,14 +6,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Update Debian packages to include security fixes
 RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 
-RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies from pinned requirements
+RUN python -m pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
